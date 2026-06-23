@@ -1,0 +1,146 @@
+import Loading from "@/components/Loading"
+import type { Orders } from "@/types/orderType"
+import type { MenuItem, RestaurantState,Restaurant } from "@/types/restaurantTypes"
+import axios from "axios"
+import { toast } from "sonner"
+import {create} from "zustand"
+import { createJSONStorage,persist } from "zustand/middleware"
+const API_END_POINT ="http://localhost:8000/api/v1/restaurant"
+axios.defaults.withCredentials=true
+
+export  const useRestaurantStore = create<RestaurantState>()(persist((set,get)=>({
+    loading:false,
+    restaurant:null,
+    restaurants:[],
+    appliedFilter:[],
+    singleRestaurant:null,
+    restaurantOrder:[],
+    searchedRestaurant:null,
+    createRestaurant: async (formData:FormData)=>{
+        try {
+            set({loading:true})
+            const response = await axios.post(`${API_END_POINT}`,formData,{
+                headers:{ 'Content-Type':'multipart/form-data' }
+            })
+            if(response.data.success){
+                toast.success(response?.data?.message || "Restaurant created")
+                set({loading:false})
+                await get().getRestaurant()
+            }
+        } catch (error:any) {
+            toast.error(error.response?.data?.message || "something went wrong")
+            set({loading:false})
+        }
+    },
+    getRestaurant:async()=>{
+        try {
+            set({loading:true})
+            const response = await axios.get(`${API_END_POINT}/`)
+            if(response.data.success){
+                set({
+                    loading:false,
+                    restaurants:response.data.restaurants,
+                    restaurant:response.data.restaurants[0] || null
+                })
+            }
+        } catch (error:any) {
+            if(error.response?.status == 404){
+                set({restaurants:[], restaurant:null})
+            }
+            set({loading:false})
+        }
+    },
+    updateRestaurant:async (restaurantId:string, formData:FormData)=>{
+        try {
+            set({loading:true})
+            const response = await axios.put(`${API_END_POINT}/${restaurantId}`,formData,{
+                headers:{ 'Content-Type':'multipart/form-data' }
+            })
+            if(response.data.success){
+                toast.success(response.data.message);
+                set({loading:false})
+                await get().getRestaurant()
+            }
+        } catch (error:any) {
+            toast.error(error.response?.data?.message || "something went wrong")
+            set({loading:false})
+        }
+    },
+    searchRestaurant:async( searchText:string,searchQuery:string,selectedCuisines:any)=>{
+        try {
+            set({loading:false})
+            const params = new URLSearchParams();   
+            params.set("searchQuery", searchQuery);
+            params.set("selectedCuisines",selectedCuisines.join(","));
+            const response = await axios.get(`${API_END_POINT}/search/${searchText}?${params.toString()}`)
+            if(response.data.success){
+                set({loading:false,searchedRestaurant:response.data})
+            }
+        } catch (error) {
+            set({loading:false})
+        }
+    },
+    addMenuToRestaurant:(menu:MenuItem)=>{
+        set((state:any)=>{
+            if(!state.restaurant) return state;
+            return { restaurant: { ...state.restaurant, menus: [...(state.restaurant.menus || []), menu] } }
+        })
+    },
+    updateMenuToRestaurant:(updatedMenu:any)=>{
+        set((state:any)=>{
+            if(state.restaurant){
+                const updatedMenuList = state.restaurant.menus.map((menu:any)=>menu._id == updatedMenu._id ?updatedMenu:menu);
+                return{ restaurant:{ ...state.restaurant, menus:updatedMenuList } }
+            }
+            return state;
+        })
+    },
+    setAppliedFilter:(value:string)=>{
+        set((state)=>{
+            const isAlreadyApplied = state.appliedFilter.includes(value);
+            const updatedFilter = isAlreadyApplied ? state.appliedFilter.filter((item)=>item!=value) :[...state.appliedFilter,value ]
+            return {appliedFilter:updatedFilter}
+        })
+    },
+    resetAppliendFilter:()=>{
+        set({appliedFilter:[]})
+    },
+    getSingleRestaurant:async(restaurantId:string)=>{
+        try {
+            const response =  await axios.get(`${API_END_POINT}/${restaurantId}`)
+            if(response.data.success){
+                set({singleRestaurant:response.data.restaurant})
+            }
+        } catch (error) {}
+    },
+    getRestaurantOrders:async()=>{
+        try {
+            const response = await axios.get(`${API_END_POINT}/order`)
+            if(response.data.success){
+                set({restaurantOrder:response.data.orders})
+            }
+        } catch (error) {
+            console.log(error)
+        }
+    },
+    updateRestaurantOrder:async(orderId:string,status:string)=>{
+        try {
+            const response = await axios.put(`${API_END_POINT}/order/${orderId}/status`,{status},{
+                headers:{ 'Content-Type':'application/json' }
+            })
+            if(response.data.success){
+                const updatedOrder = get().restaurantOrder.map((order:Orders)=>{
+                    return order._id == orderId ?{...order,status:response.data.state}:order
+                })
+                set({restaurantOrder:updatedOrder})
+                toast.success(response.data.message)
+            }
+        } catch (error:any) {
+            toast.error(error.response.data.message)
+        }
+    }
+}),{
+    name:'restaurant-name',
+    storage:createJSONStorage(()=>localStorage)
+}
+))
